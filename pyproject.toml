@@ -1,0 +1,21 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "polymarket-core"
+version = "5.2.0"
+description = "Core trading library for Polymarket bots"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "httpx",
+    "pydantic",
+    "sqlalchemy",
+    "web3",
+    "eth-account",
+    "py-clob-client"
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["polymarket_core"]
