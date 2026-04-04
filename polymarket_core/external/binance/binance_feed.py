@@ -178,3 +178,6 @@ class BinanceFeed:
         
         v_past = (past_60s[-1][1] - past_120s[-1][1]) / 60
         return (v_now - v_past) / 60
+
+    async def get_klines_async(self, coin: str, interval: str = "1m", limit: int = 100) -> list:
+        return await self._client.get_klines(coin, interval, limit)
