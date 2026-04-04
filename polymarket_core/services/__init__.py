@@ -1,6 +1,7 @@
 from .trading_service import TradingService
 from .market_data_service import MarketDataService
 from .resolution_service import ResolutionService
+from .indicator_service import IndicatorService, MarketRegime
 
 _services = {
     "trading": None,

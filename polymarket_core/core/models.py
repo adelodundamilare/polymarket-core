@@ -67,6 +67,11 @@ class Order:
     filled_at: datetime | None = None
     filled_price: float | None = None
     token_id: str | None = None
+    adx: float | None = None
+    ema9: float | None = None
+    ema21: float | None = None
+    atr: float | None = None
+    gap: str | None = None
 
 
 @dataclass
@@ -95,3 +100,9 @@ class Trade:
     signal_metadata: str | None = None
     entry_cvd_60s: float | None = None
     entry_cvd_session: float | None = None
+    take_profit_order_id: str | None = None
+    take_profit_price: float | None = None
+    entry_gap_usd: float | None = None
+    trigger_gap: str | None = None
+    trigger_atr: float | None = None
+    trigger_ema: float | None = None
