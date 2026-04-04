@@ -34,36 +34,73 @@ class TradingService:
             return True
 
         try:
-            aggressive_price = min(0.99, round(price + 0.015, 4))
-            res = await self._client.place_limit_order(trade.token_id, trade.outcome.value, aggressive_price, shares, "BUY", "FAK")
+            # Calculate aggressive price using percentage-based slippage
+            slippage = settings.execution_slippage_pct
+            aggressive_price = round(price * (1 + slippage), 4)
+            aggressive_price = min(0.99, max(0.01, aggressive_price))
+            
+            logger.info(f"TradingService | Placing GTC Order | {trade.id} | Base: {price} | Aggressive: {aggressive_price} | Slippage: {slippage:.1%}")
+            
+            res = await self._client.place_limit_order(trade.token_id, trade.outcome.value, aggressive_price, shares, "BUY", "GTC")
             order_id = res.get('orderID')
+            if not order_id:
+                logger.error(f"TradingService | Order submission failed: {res}")
+                trade.status = TradeStatus.CANCELLED
+                order.status = OrderStatus.CANCELLED
+                return False
+                
             order.id = order_id
             
-            await asyncio.sleep(1.5)
+            # Wait-for-Fill Loop
+            timeout = settings.execution_timeout_sec
+            start_time = time.time()
+            filled_shares = 0.0
+            last_status = "PENDING"
             
-            try:
-                status_res = await self._client.get_order_status(order_id)
-                status = status_res.get("status", "").upper()
-                filled_shares = float(status_res.get("size_matched", 0)) if "size_matched" in status_res else float(status_res.get("size", shares))
-                
-                if filled_shares <= 0 and status in ["FILLED", "CANCELED", "CANCELLED", "EXPIRED"]:
-                    status = "CANCELLED"
-            except Exception:
-                status = "FILLED"
-                filled_shares = shares
-            
-            if status in ["FILLED", "PARTIALLY_FILLED", "LIVE", "PENDING"] and filled_shares > 0:
-                order.status = OrderStatus.FILLED if status == "FILLED" else OrderStatus.PENDING
-                order.filled_price = price
+            while time.time() - start_time < timeout:
+                try:
+                    status_res = await self._client.get_order_status(order_id)
+                    last_status = status_res.get("status", "").upper()
+                    filled_shares = float(status_res.get("size_matched", 0))
+                    
+                    if last_status == "FILLED":
+                        logger.info(f"TradingService | Order FILLED | {trade.id} | Shares: {filled_shares}")
+                        break
+                    
+                    if last_status in ["CANCELED", "CANCELLED", "EXPIRED"]:
+                        logger.warning(f"TradingService | Order {last_status} externally | {trade.id}")
+                        break
+                        
+                    await asyncio.sleep(1.0)
+                except Exception as e:
+                    logger.warning(f"TradingService | Status check failed for {order_id}: {e}")
+                    await asyncio.sleep(1.0)
+
+            # If still open after timeout, cancel remaining
+            if last_status not in ["FILLED", "CANCELED", "CANCELLED", "EXPIRED"]:
+                logger.info(f"TradingService | Timeout reached. Cancelling remaining for {trade.id} (Filled: {filled_shares})")
+                await self._client.cancel_order(order_id)
+                # Final check after cancellation
+                try:
+                    status_res = await self._client.get_order_status(order_id)
+                    filled_shares = float(status_res.get("size_matched", filled_shares))
+                except: pass
+
+            if filled_shares > 0:
+                is_full_fill = abs(filled_shares - shares) < 1e-6
+                order.status = OrderStatus.FILLED if is_full_fill else OrderStatus.PARTIALLY_FILLED
+                order.filled_price = aggressive_price
                 order.shares = filled_shares
                 order.filled_at = datetime.now(timezone.utc).replace(tzinfo=None)
                 
                 trade.shares = filled_shares
-                trade.entry_price = price
-                trade.entry_cost_usdc = filled_shares * price
+                trade.entry_price = aggressive_price
+                trade.entry_cost_usdc = filled_shares * aggressive_price
                 trade.status = TradeStatus.ACTIVE
+                logger.info(f"TradingService | Execution Complete | {trade.id} | Status: {order.status} | Final Shares: {filled_shares}")
                 return True
             else:
+                logger.warning(f"TradingService | Order failed to fill | {trade.id} | Last Status: {last_status}")
                 trade.status = TradeStatus.CANCELLED
                 order.status = OrderStatus.CANCELLED
                 return False

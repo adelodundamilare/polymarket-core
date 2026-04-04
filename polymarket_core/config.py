@@ -35,6 +35,9 @@ class CoreSettings(BaseSettings):
     max_position_size_usdc: float = 1.0
     compounding_enabled: bool = False
     compounding_percentage: float = 0.90
+    
+    execution_slippage_pct: float = 0.01  # 1.0% dynamic slippage
+    execution_timeout_sec: int = 5         # Wait 5s for GTC fill
 
     class Config:
         env_file = ".env"
