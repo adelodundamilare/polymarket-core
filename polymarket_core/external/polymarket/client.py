@@ -202,20 +202,34 @@ class PolymarketClient:
             raise PolymarketAPIError(f"Request failed: {e}") from e
 
     async def get_order_status(self, order_id: str) -> dict:
-        if not self._client:
-            raise PolymarketAPIError("Client not initialized (use async with)")
+        await self.ensure_credentials()
 
-        url = f"{settings.polymarket_base_url}/data/order/{order_id}"
-        headers = self._get_auth_headers("GET", f"/data/order/{order_id}")
+        creds = ApiCreds(
+            api_key=self._api_key,
+            api_secret=self._api_secret,
+            api_passphrase=self._api_passphrase
+        )
+
+        sdk_client = ClobClient(
+            host=settings.polymarket_base_url,
+            key=settings.wallet_private_key,
+            chain_id=137,
+            creds=creds,
+            signature_type=2,
+            funder=self._address
+        )
 
         try:
-            response = await self._client.get(url, headers=headers)
-            response.raise_for_status()
-            return response.json()
-        except httpx.HTTPStatusError as e:
-            raise PolymarketAPIError(f"Failed to fetch order: {e}") from e
-        except httpx.RequestError as e:
-            raise PolymarketAPIError(f"Request failed: {e}") from e
+            # sdk_client.get_order returns dict natively
+            res = await asyncio.to_thread(sdk_client.get_order, order_id)
+            # Some versions of clob-client return the order in a list
+            if isinstance(res, list) and len(res) > 0:
+                return res[0]
+            elif isinstance(res, dict):
+                return res
+            return {}
+        except Exception as e:
+            raise PolymarketAPIError(f"Failed to fetch order status using SDK: {e}")
 
     async def ensure_credentials(self) -> None:
         if not self._credentials_derived:
