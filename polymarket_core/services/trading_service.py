@@ -61,7 +61,7 @@ class TradingService:
                 try:
                     status_res = await self._client.get_order_status(order_id)
                     last_status = status_res.get("status", "").upper()
-                    filled_shares = float(status_res.get("size_matched", 0))
+                    filled_shares = float(status_res.get("size_matched", status_res.get("sizeMatched", 0)))
                     
                     if last_status == "FILLED":
                         logger.info(f"TradingService | Order FILLED | {trade.id} | Shares: {filled_shares}")
@@ -83,8 +83,11 @@ class TradingService:
                 # Final check after cancellation
                 try:
                     status_res = await self._client.get_order_status(order_id)
-                    filled_shares = float(status_res.get("size_matched", filled_shares))
+                    filled_shares = float(status_res.get("size_matched", status_res.get("sizeMatched", filled_shares)))
                 except: pass
+
+            if last_status == "FILLED" and filled_shares == 0:
+                filled_shares = shares
 
             if filled_shares > 0:
                 is_full_fill = abs(filled_shares - shares) < 1e-6
