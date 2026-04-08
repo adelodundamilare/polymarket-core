@@ -21,7 +21,7 @@ class TradingService:
     async def execute_entry(self, trade: Trade, order: Order, price: float, shares: float) -> bool:
         if settings.app_mode == "PAPER":
             logger.info(f"TradingService | SIMULATING ENTRY | {trade.id} | {shares} @ {price}")
-            order.id = f"FAKE_{int(datetime.now(timezone.utc).timestamp())}"
+            order.id = f"FAKE_{datetime.now(timezone.utc).strftime('%H%M%S%f')}"
             order.status = OrderStatus.FILLED
             order.filled_price = price
             order.shares = shares

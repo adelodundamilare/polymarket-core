@@ -181,3 +181,6 @@ class BinanceFeed:
 
     async def get_klines_async(self, coin: str, interval: str = "1m", limit: int = 100) -> list:
         return await self._client.get_klines(coin, interval, limit)
+
+    async def get_funding_rate(self, coin: str) -> float:
+        return await self._client.get_funding_rate(coin)

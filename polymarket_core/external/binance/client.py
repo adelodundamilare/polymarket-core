@@ -9,6 +9,7 @@ class BinanceClient:
         "https://api-gcp.binance.com/api/v3",
         "https://data-api.binance.vision/api/v3",
     ]
+    FUTURES_BASE_URL = "https://fapi.binance.com/fapi/v1"
 
     SYMBOL_MAP = {
         "BTC": "BTCUSDT",
@@ -52,6 +53,17 @@ class BinanceClient:
                 continue
         return None
 
+    async def _fetch_futures(self, endpoint: str, params: dict) -> dict | None:
+        client = await self._get_client()
+        url = f"{self.FUTURES_BASE_URL}{endpoint}"
+        try:
+            response = await client.get(url, params=params)
+            if response.status_code == 200:
+                return response.json()
+        except (httpx.HTTPError, Exception) as e:
+            logger.warning(f"Binance Futures node fail: {e}")
+        return None
+
     async def get_price(self, symbol: str) -> float | None:
         binance_symbol = self.SYMBOL_MAP.get(symbol.upper(), f"{symbol.upper()}USDT")
 
@@ -79,3 +91,12 @@ class BinanceClient:
         params.update(kwargs)
 
         return await self._fetch("/klines", params)
+
+    async def get_funding_rate(self, symbol: str) -> float:
+        """Fetch the current funding rate for a symbol."""
+        binance_symbol = self.SYMBOL_MAP.get(symbol.upper(), f"{symbol.upper()}USDT")
+        params = {"symbol": binance_symbol}
+        data = await self._fetch_futures("/premiumIndex", params)
+        if data and "lastFundingRate" in data:
+            return float(data["lastFundingRate"])
+        return 0.0
