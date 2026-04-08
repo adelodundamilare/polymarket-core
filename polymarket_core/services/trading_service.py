@@ -39,9 +39,9 @@ class TradingService:
             aggressive_price = round(price * (1 + slippage), 4)
             aggressive_price = min(0.99, max(0.01, aggressive_price))
             
-            logger.info(f"TradingService | Placing GTC Order | {trade.id} | Base: {price} | Aggressive: {aggressive_price} | Slippage: {slippage:.1%}")
+            logger.info(f"TradingService | Placing FAK Order | {trade.id} | Base: {price} | Aggressive: {aggressive_price} | Slippage: {slippage:.1%}")
             
-            res = await self._client.place_limit_order(trade.token_id, trade.outcome.value, aggressive_price, shares, "BUY", "GTC")
+            res = await self._client.place_limit_order(trade.token_id, trade.outcome.value, aggressive_price, shares, "BUY", "FAK")
             order_id = res.get('orderID')
             if not order_id:
                 logger.error(f"TradingService | Order submission failed: {res}")
@@ -52,39 +52,24 @@ class TradingService:
             order.id = order_id
             
             # Wait-for-Fill Loop
-            timeout = settings.execution_timeout_sec
-            start_time = time.time()
             filled_shares = 0.0
             last_status = "PENDING"
             
-            while time.time() - start_time < timeout:
-                try:
-                    status_res = await self._client.get_order_status(order_id)
-                    last_status = status_res.get("status", "").upper()
-                    filled_shares = float(status_res.get("size_matched", status_res.get("sizeMatched", 0)))
-                    
-                    if last_status == "FILLED":
-                        logger.info(f"TradingService | Order FILLED | {trade.id} | Shares: {filled_shares}")
-                        break
-                    
-                    if last_status in ["CANCELED", "CANCELLED", "EXPIRED"]:
-                        logger.warning(f"TradingService | Order {last_status} externally | {trade.id}")
-                        break
-                        
-                    await asyncio.sleep(1.0)
-                except Exception as e:
-                    logger.warning(f"TradingService | Status check failed for {order_id}: {e}")
-                    await asyncio.sleep(1.0)
+            # Brief wait for FAK to settle in backend
+            await asyncio.sleep(1.0)
+            
+            try:
+                status_res = await self._client.get_order_status(order_id)
+                last_status = status_res.get("status", "").upper()
+                filled_shares = float(status_res.get("size_matched", status_res.get("sizeMatched", 0)))
+                
+                if last_status == "FILLED":
+                    logger.info(f"TradingService | FAK Order FILLED | {trade.id} | Shares: {filled_shares}")
+                elif last_status in ["CANCELED", "CANCELLED", "EXPIRED"]:
+                    logger.warning(f"TradingService | FAK Order {last_status} | {trade.id} | Filled: {filled_shares}")
+            except Exception as e:
+                logger.warning(f"TradingService | Status check failed for {order_id}: {e}")
 
-            # If still open after timeout, cancel remaining
-            if last_status not in ["FILLED", "CANCELED", "CANCELLED", "EXPIRED"]:
-                logger.info(f"TradingService | Timeout reached. Cancelling remaining for {trade.id} (Filled: {filled_shares})")
-                await self._client.cancel_order(order_id)
-                # Final check after cancellation
-                try:
-                    status_res = await self._client.get_order_status(order_id)
-                    filled_shares = float(status_res.get("size_matched", status_res.get("sizeMatched", filled_shares)))
-                except: pass
 
             if last_status == "FILLED" and filled_shares == 0:
                 filled_shares = shares
@@ -184,6 +169,7 @@ class TradingService:
             return False
 
         sl_price = trade.entry_price * (1 - settings.stop_loss_pct)
+        # Prioritize bid_price as it represents the actual exitable price
         trigger_p = bid_price if bid_price is not None else mid_price
 
         if trigger_p <= sl_price:
@@ -193,9 +179,10 @@ class TradingService:
             if count >= settings.stop_loss_confirmation_count:
                 logger.warning(
                     f"STOP LOSS TRIGGERED (Confirmed {count}/{settings.stop_loss_confirmation_count}) | "
-                    f"{trade.id} | Entry: {trade.entry_price:.3f} | Current: {trigger_p:.3f} | Target SL: {sl_price:.3f}"
+                    f"{trade.id} | Entry: {trade.entry_price:.3f} | Current (Bid): {trigger_p:.3f} | Target SL: {sl_price:.3f}"
                 )
-                exit_p = max(0.01, round(bid_price - 0.005, 4)) if bid_price else round(mid_price - 0.01, 4)
+                # Ensure we use an aggressive exit price based on the bid
+                exit_p = max(0.01, round(trigger_p - 0.005, 4))
                 success = await self.execute_exit(trade, exit_p, reason="STOP_LOSS")
                 if success:
                     self._sl_confirmation_map.pop(trade.id, None)
@@ -203,10 +190,12 @@ class TradingService:
             else:
                 logger.info(
                     f"STOP LOSS PENDING ({count}/{settings.stop_loss_confirmation_count}) | "
-                    f"{trade.id} | Current: {trigger_p:.3f} | Target SL: {sl_price:.3f}"
+                    f"{trade.id} | Current (Bid): {trigger_p:.3f} | Target SL: {sl_price:.3f}"
                 )
         else:
             if trade.id in self._sl_confirmation_map:
+                if self._sl_confirmation_map[trade.id] > 0:
+                    logger.info(f"STOP LOSS RECOVERED | {trade.id} | Bid: {trigger_p:.3f} recovered above {sl_price:.3f}")
                 self._sl_confirmation_map[trade.id] = 0
             
         return False
