@@ -145,7 +145,12 @@ class TradingService:
             
             trade.exit_price = exit_price
             trade.total_pnl_usdc = pnl
-            trade.status = TradeStatus.CLOSED if reason != "STOP_LOSS" else TradeStatus.STOPPED_OUT
+            if reason == "TAKE_PROFIT":
+                trade.status = TradeStatus.RESOLVED_WIN
+            elif reason == "STOP_LOSS":
+                trade.status = TradeStatus.STOPPED_OUT
+            else:
+                trade.status = TradeStatus.CLOSED
             trade.exit_reason = reason
             
             self._order_repo.save(exit_order)
@@ -171,7 +176,12 @@ class TradingService:
                 pnl = (exit_price - entry_price) * shares
                 trade.exit_price = exit_price
                 trade.total_pnl_usdc = pnl
-                trade.status = TradeStatus.CLOSED if reason != "STOP_LOSS" else TradeStatus.STOPPED_OUT
+                if reason == "TAKE_PROFIT":
+                    trade.status = TradeStatus.RESOLVED_WIN
+                elif reason == "STOP_LOSS":
+                    trade.status = TradeStatus.STOPPED_OUT
+                else:
+                    trade.status = TradeStatus.CLOSED
                 trade.exit_reason = reason
                 
                 self._order_repo.save(exit_order)
