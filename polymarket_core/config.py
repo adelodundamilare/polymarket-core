@@ -39,6 +39,8 @@ class CoreSettings(BaseSettings):
     execution_slippage_pct: float = 0.01  # 1.0% dynamic slippage
     execution_timeout_sec: int = 5         # Wait 5s for GTC fill
 
+    auto_redemption_enabled: bool = False  # Global toggle for on-chain redemptions
+
     class Config:
         env_file = ".env"
         case_sensitive = False

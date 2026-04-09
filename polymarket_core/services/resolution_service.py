@@ -29,12 +29,12 @@ class ResolutionService:
         else:
             logger.info(f"Trade {trade.id} RESOLVED | {status.value} | PnL: {pnl:.2f}")
         
-        # NOTE: Auto-redemption is globally disabled to save gas. 
-        # Bulk redemption is handled by the Centralized RedemptionWorker.
-        # if is_win:
-        #     cid = market.get("conditionId") or market.get("condition_id")
-        #     if cid:
-        #         await self.redeem_tokens(cid, is_paper=trade.is_paper)
+        # Auto-redemption is globally controlled via settings. 
+        # By default, it is disabled to save gas across fleet instances.
+        if is_win:
+            cid = market.get("conditionId") or market.get("condition_id")
+            if cid:
+                await self.redeem_tokens(cid, is_paper=trade.is_paper)
 
     def determine_winning_outcome(self, market: dict) -> MarketOutcome | None:
         try:
@@ -68,10 +68,14 @@ class ResolutionService:
             logger.error(f"ResolutionService | Failed to fetch redeemable positions: {e}")
             return []
 
-    async def redeem_tokens(self, condition_id: str, is_paper: bool = False) -> bool:
+    async def redeem_tokens(self, condition_id: str, is_paper: bool = False, force: bool = False) -> bool:
         if is_paper or settings.app_mode == "PAPER":
             logger.info(f"ResolutionService | Simulated redemption for paper trade {condition_id} (APP_MODE=PAPER)")
             return True
+            
+        if not force and not settings.auto_redemption_enabled:
+            logger.debug(f"ResolutionService | Skipping redemption for {condition_id} (AUTO_REDEMPTION_ENABLED=False)")
+            return False
         try:
             res = await self._client.redeem_positions(condition_id)
             logger.info(f"ResolutionService | Redemption result for {condition_id}: {res}")
