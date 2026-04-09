@@ -145,12 +145,10 @@ class TradingService:
             
             trade.exit_price = exit_price
             trade.total_pnl_usdc = pnl
-            if reason == "TAKE_PROFIT":
+            if pnl > 0.001:
                 trade.status = TradeStatus.RESOLVED_WIN
-            elif reason == "STOP_LOSS":
-                trade.status = TradeStatus.STOPPED_OUT
             else:
-                trade.status = TradeStatus.CLOSED
+                trade.status = TradeStatus.RESOLVED_LOSS
             trade.exit_reason = reason
             
             self._order_repo.save(exit_order)
@@ -176,12 +174,15 @@ class TradingService:
                 pnl = (exit_price - entry_price) * shares
                 trade.exit_price = exit_price
                 trade.total_pnl_usdc = pnl
-                if reason == "TAKE_PROFIT":
+                
+                # Terminal Status Mapping:
+                # Any exit with positive PnL is a WIN. 
+                # This ensures TP and profitable Time-Limit exits are protected from resolution overwrites.
+                if pnl > 0.001:
                     trade.status = TradeStatus.RESOLVED_WIN
-                elif reason == "STOP_LOSS":
-                    trade.status = TradeStatus.STOPPED_OUT
                 else:
-                    trade.status = TradeStatus.CLOSED
+                    trade.status = TradeStatus.RESOLVED_LOSS
+
                 trade.exit_reason = reason
                 
                 self._order_repo.save(exit_order)
