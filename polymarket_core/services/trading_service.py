@@ -18,9 +18,9 @@ class TradingService:
         self._trade_repo = trade_repo
         self._sl_confirmation_map: dict[str, int] = {}
 
-    async def execute_entry(self, trade: Trade, order: Order, price: float, shares: float) -> bool:
+    async def execute_entry(self, trade: Trade, order: Order, price: float, shares: float, order_type: str = "FAK") -> bool:
         if settings.app_mode == "PAPER":
-            logger.info(f"TradingService | SIMULATING ENTRY | {trade.id} | {shares} @ {price}")
+            logger.info(f"TradingService | SIMULATING ENTRY | {trade.id} | {shares} @ {price} | Type: {order_type}")
             order.id = f"FAKE_{datetime.now(timezone.utc).strftime('%H%M%S%f')}"
             order.status = OrderStatus.FILLED
             order.filled_price = price
@@ -38,9 +38,9 @@ class TradingService:
             # using get_valid_order_size to satisfy precision requirements.
             aggressive_price = round(price, 4)
             
-            logger.info(f"TradingService | Placing FAK Order | {trade.id} | Price: {aggressive_price} | Shares: {shares}")
+            logger.info(f"TradingService | Placing {order_type} Order | {trade.id} | Price: {aggressive_price} | Shares: {shares}")
             
-            res = await self._client.place_limit_order(trade.token_id, trade.outcome.value, aggressive_price, shares, "BUY", "FAK")
+            res = await self._client.place_limit_order(trade.token_id, trade.outcome.value, aggressive_price, shares, "BUY", order_type)
             order_id = res.get('orderID')
             if not order_id:
                 logger.error(f"TradingService | Order submission failed: {res}")
@@ -50,12 +50,9 @@ class TradingService:
                 
             order.id = order_id
             
-            # Wait-for-Fill Loop
-            filled_shares = 0.0
-            last_status = "PENDING"
-            
-            # Brief wait for FAK to settle in backend
-            await asyncio.sleep(1.0)
+            # Brief wait for resolution
+            wait_time = 1.0 if order_type == "FAK" else settings.execution_timeout_sec
+            await asyncio.sleep(wait_time)
             
             try:
                 status_res = await self._client.get_order_status(order_id)
@@ -63,12 +60,11 @@ class TradingService:
                 filled_shares = float(status_res.get("size_matched", status_res.get("sizeMatched", 0)))
                 
                 if last_status == "FILLED":
-                    logger.info(f"TradingService | FAK Order FILLED | {trade.id} | Shares: {filled_shares}")
+                    logger.info(f"TradingService | {order_type} Order FILLED | {trade.id} | Shares: {filled_shares}")
                 elif last_status in ["CANCELED", "CANCELLED", "EXPIRED"]:
-                    logger.warning(f"TradingService | FAK Order {last_status} | {trade.id} | Filled: {filled_shares}")
+                    logger.warning(f"TradingService | {order_type} Order {last_status} | {trade.id} | Filled: {filled_shares}")
             except Exception as e:
                 logger.warning(f"TradingService | Status check failed for {order_id}: {e}")
-
 
             if last_status == "FILLED" and filled_shares == 0:
                 filled_shares = shares
@@ -95,6 +91,30 @@ class TradingService:
             logger.error(f"TradingService | Entry failed for {trade.id}: {e}")
             trade.status = TradeStatus.CANCELLED
             order.status = OrderStatus.CANCELLED
+            return False
+
+    async def execute_safe_entry(self, trade: Trade, order: Order, target_usdc: float, signal_price: float, order_type: str = "FAK") -> bool:
+        """
+        Consolidated, precision-safe entry.
+        Applies slippage, balances the size/price product to avoid 400 errors, and executes.
+        """
+        try:
+            # 1. Apply slippage
+            slippage = settings.execution_slippage_pct
+            aggressive_price = round(signal_price * (1 + slippage), 4)
+            aggressive_price = min(0.99, max(0.01, aggressive_price))
+            
+            # 2. Balance for precision
+            maker_amount, shares, final_price = self.get_valid_order_size(target_usdc, aggressive_price)
+            
+            if shares is None or shares <= 0:
+                logger.error(f"TradingService | SAFE_ENTRY | Could not balance size for {target_usdc} USDC at {aggressive_price}")
+                return False
+                
+            # 3. Execute
+            return await self.execute_entry(trade, order, final_price, shares, order_type=order_type)
+        except Exception as e:
+            logger.error(f"TradingService | SAFE_ENTRY | Error: {e}")
             return False
 
     async def execute_exit(self, trade: Trade, exit_price: float, reason: str = "STOP_LOSS") -> bool:

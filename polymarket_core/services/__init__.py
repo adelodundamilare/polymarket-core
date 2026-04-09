@@ -24,8 +24,11 @@ def get_trading_service() -> TradingService:
     return _get_service("trading")
 
 # --- Trading Service Facade ---
-async def execute_entry(trade, order, price, shares):
-    return await _get_service("trading").execute_entry(trade, order, price, shares)
+async def execute_entry(trade, order, price, shares, order_type="FAK"):
+    return await _get_service("trading").execute_entry(trade, order, price, shares, order_type=order_type)
+
+async def execute_safe_entry(trade, order, target_usdc, signal_price, order_type="FAK"):
+    return await _get_service("trading").execute_safe_entry(trade, order, target_usdc, signal_price, order_type=order_type)
 
 def get_valid_order_size(usdc: float, price: float):
     return _get_service("trading").get_valid_order_size(usdc, price)
