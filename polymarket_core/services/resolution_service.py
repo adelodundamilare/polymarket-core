@@ -22,12 +22,19 @@ class ResolutionService:
         status = TradeStatus.RESOLVED_WIN if is_win else TradeStatus.RESOLVED_LOSS
 
         self._trade_repo.update_resolved(trade.id, status, pnl, exit_price=payout_price)
-        logger.info(f"Trade {trade.id} RESOLVED | {status.value} | PnL: {pnl:.2f}")
         
-        if is_win:
-            cid = market.get("conditionId") or market.get("condition_id")
-            if cid:
-                await self.redeem_tokens(cid, is_paper=trade.is_paper)
+        # Sanity Check: If win but PnL is negative, it indicates a data corruption in shares/cost
+        if is_win and pnl < -0.01:
+            logger.critical(f"DATA_ERROR | Trade {trade.id} RESOLVED_WIN with NEGATIVE PnL ({pnl:.2f}) | Shares: {trade.shares} | Cost: {trade.entry_cost_usdc}")
+        else:
+            logger.info(f"Trade {trade.id} RESOLVED | {status.value} | PnL: {pnl:.2f}")
+        
+        # NOTE: Auto-redemption is globally disabled to save gas. 
+        # Bulk redemption is handled by the Centralized RedemptionWorker.
+        # if is_win:
+        #     cid = market.get("conditionId") or market.get("condition_id")
+        #     if cid:
+        #         await self.redeem_tokens(cid, is_paper=trade.is_paper)
 
     def determine_winning_outcome(self, market: dict) -> MarketOutcome | None:
         try:

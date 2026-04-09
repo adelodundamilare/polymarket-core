@@ -398,6 +398,19 @@ class PolymarketClient:
             logger.error(f"Failed to fetch user positions: {e}")
             return []
 
+    async def get_matic_balance(self) -> float:
+        """Returns the MATIC balance of the funder account."""
+        from web3 import Web3
+        try:
+            POLYGON_RPC = "https://polygon-bor-rpc.publicnode.com"
+            w3 = Web3(Web3.HTTPProvider(POLYGON_RPC))
+            account = w3.eth.account.from_key(settings.wallet_private_key)
+            balance_wei = await asyncio.to_thread(w3.eth.get_balance, account.address)
+            return float(w3.from_wei(balance_wei, 'ether'))
+        except Exception as e:
+            logger.error(f"Failed to fetch MATIC balance: {e}")
+            return 0.0
+
     async def redeem_positions(self, condition_id: str, outcome_index: int | None = None, nonce: int | None = None) -> dict:
         from web3 import Web3
 

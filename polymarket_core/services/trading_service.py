@@ -220,22 +220,44 @@ class TradingService:
         return False
 
     def get_valid_order_size(self, usdc: float, price: float):
-        usdc_val = round(float(usdc), 2)
-        base_price = round(float(price), 4)
-
-        for p_adj in [0, 0.0001, -0.0001, 0.0002, -0.0002]:
-            adj_price = round(base_price + p_adj, 4)
-            if adj_price <= 0: continue
-            
-            shares = round(usdc_val / adj_price, 4)
-            for i in range(100):
-                test_shares = round(shares - (i * 0.0001), 4)
-                if test_shares <= 0: break
-                
-                maker = float(test_shares * adj_price)
-                if abs(maker - round(maker, 2)) < 1e-9:
-                    return round(maker, 2), test_shares, adj_price
+        """
+        Robust search for a (Shares, Price) pair that satisfies Polymarket's 2-decimal USDC rule.
+        Prioritizes the highest valid amount LESS THAN OR EQUAL TO the target usdc.
+        """
+        target_k = int(round(usdc * 100))
+        base_p = round(price, 4)
         
+        # Try finding a solution for a range of "cents" starting from target downwards (max 10% lower)
+        # We search downwards because the user prefers lower amounts over exceeding target
+        cents_range = range(target_k, max(0, int(target_k * 0.9)) - 1, -1)
+        
+        for k in cents_range:
+            maker_target = k / 100.0
+            
+            # Initial estimate for shares
+            shares_est = round(maker_target / base_p, 4)
+            
+            # Try a range of shares around the estimate
+            # We check both directions because a small price nudge in either direction might balance it
+            for s_offset_ticks in range(500):
+                for sign in [1, -1]:
+                    if s_offset_ticks == 0 and sign == -1: continue
+                    
+                    s = round(shares_est + (sign * s_offset_ticks * 0.0001), 4)
+                    if s <= 0: continue
+                    
+                    # Resulting price P = Maker / S
+                    p = round(maker_target / s, 4)
+                    if p <= 0 or p > 0.99: continue
+                    
+                    # Verify this price and share combo produces EXACTLY the target 2-decimal maker amount
+                    # Floating point precision safety: use round and epsilon
+                    calc_maker = round(s * p, 2)
+                    if abs((s * p) - calc_maker) < 1e-9:
+                        # Success! Now check if the price nudge is within acceptable slippage (1%)
+                        if abs(p - base_p) / base_p <= 0.01:
+                            return calc_maker, s, p
+                            
         return None, None, None
 
     async def calculate_position_size(self) -> float:
