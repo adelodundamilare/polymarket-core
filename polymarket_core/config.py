@@ -40,6 +40,9 @@ class CoreSettings(BaseSettings):
     execution_timeout_sec: int = 5         # Wait 5s for GTC fill
 
     auto_redemption_enabled: bool = False  # Global toggle for on-chain redemptions
+    
+    take_profit_enabled: bool = False
+    take_profit_pct: float = 0.50
 
     class Config:
         env_file = ".env"

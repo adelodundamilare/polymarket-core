@@ -183,64 +183,6 @@ class TradingService:
             logger.error(f"TradingService | Exit failed for {trade.id}: {e}")
             return False
 
-    async def evaluate_stop_loss(self, trade: Trade, mid_price: float, bid_price: float | None = None) -> bool:
-        if not settings.stop_loss_enabled or not trade.entry_price or trade.shares <= 0:
-            return False
-
-        sl_price = trade.entry_price * (1 - settings.stop_loss_pct)
-        # Prioritize bid_price as it represents the actual exitable price
-        trigger_p = bid_price if bid_price is not None else mid_price
-
-        if trigger_p <= sl_price:
-            count = self._sl_confirmation_map.get(trade.id, 0) + 1
-            self._sl_confirmation_map[trade.id] = count
-            
-            if count >= settings.stop_loss_confirmation_count:
-                logger.warning(
-                    f"STOP LOSS TRIGGERED (Confirmed {count}/{settings.stop_loss_confirmation_count}) | "
-                    f"{trade.id} | Entry: {trade.entry_price:.3f} | Current (Bid): {trigger_p:.3f} | Target SL: {sl_price:.3f}"
-                )
-                # Ensure we use an aggressive exit price based on the bid
-                exit_p = max(0.01, round(trigger_p - 0.005, 4))
-                success = await self.execute_exit(trade, exit_p, reason="STOP_LOSS")
-                if success:
-                    self._sl_confirmation_map.pop(trade.id, None)
-                return success
-            else:
-                logger.info(
-                    f"STOP LOSS PENDING ({count}/{settings.stop_loss_confirmation_count}) | "
-                    f"{trade.id} | Current (Bid): {trigger_p:.3f} | Target SL: {sl_price:.3f}"
-                )
-            if trade.id in self._sl_confirmation_map:
-                if self._sl_confirmation_map[trade.id] > 0:
-                    logger.info(f"STOP LOSS RECOVERED | {trade.id} | Bid: {trigger_p:.3f} recovered above {sl_price:.3f}")
-                self._sl_confirmation_map[trade.id] = 0
-            
-        return False
-
-    async def evaluate_take_profit(self, trade: Trade, mid_price: float, bid_price: float | None = None) -> bool:
-        """
-        Evaluates a percentage-based Take Profit constraint.
-        tp_price = entry_price * (1 + take_profit_pct)
-        """
-        # If toggled off or no entry price available, bail.
-        if not getattr(settings, 'take_profit_enabled', False) or not trade.entry_price or trade.shares <= 0:
-            return False
-
-        tp_price = trade.entry_price * (1 + getattr(settings, 'take_profit_pct', 0.10))
-        # Prioritize bid_price since it's the executable fill
-        trigger_p = bid_price if bid_price is not None else mid_price
-
-        if trigger_p >= tp_price:
-            logger.info(
-                f"TAKE PROFIT TRIGGERED | {trade.id} | Entry: {trade.entry_price:.3f} | Current (Bid): {trigger_p:.3f} | Target TP: {tp_price:.3f}"
-            )
-            # Route exit aggressively (slight reduction for fill certainty)
-            exit_p = max(0.01, round(trigger_p - 0.005, 4))
-            success = await self.execute_exit(trade, exit_p, reason="TAKE_PROFIT")
-            return success
-
-        return False
 
     def get_valid_order_size(self, usdc: float, price: float):
         """
