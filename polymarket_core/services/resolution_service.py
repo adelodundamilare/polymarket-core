@@ -16,6 +16,10 @@ class ResolutionService:
         self._trade_repo = trade_repo
 
     async def resolve_trade(self, trade: Trade, winning_outcome: MarketOutcome, market: dict) -> None:
+        if trade.status != TradeStatus.ACTIVE:
+            logger.info(f"ResolutionService | Skipping trade {trade.id} as it is already {trade.status.value}")
+            return
+            
         is_win = (trade.outcome == winning_outcome)
         payout_price = 1.0 if is_win else 0.0
         pnl = (trade.shares * payout_price) - trade.entry_cost_usdc
