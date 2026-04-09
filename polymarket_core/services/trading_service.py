@@ -34,12 +34,11 @@ class TradingService:
             return True
 
         try:
-            # Calculate aggressive price using percentage-based slippage
-            slippage = settings.execution_slippage_pct
-            aggressive_price = round(price * (1 + slippage), 4)
-            aggressive_price = min(0.99, max(0.01, aggressive_price))
+            # We trust the price and shares passed in, as they should be pre-balanced
+            # using get_valid_order_size to satisfy precision requirements.
+            aggressive_price = round(price, 4)
             
-            logger.info(f"TradingService | Placing FAK Order | {trade.id} | Base: {price} | Aggressive: {aggressive_price} | Slippage: {slippage:.1%}")
+            logger.info(f"TradingService | Placing FAK Order | {trade.id} | Price: {aggressive_price} | Shares: {shares}")
             
             res = await self._client.place_limit_order(trade.token_id, trade.outcome.value, aggressive_price, shares, "BUY", "FAK")
             order_id = res.get('orderID')
