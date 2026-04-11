@@ -1,6 +1,7 @@
 import asyncio
 import math
 import time
+from decimal import Decimal, ROUND_HALF_UP
 from datetime import datetime, timezone
 from polymarket_core.config import settings
 from polymarket_core.core.models import Order, OrderSide, OrderStatus, OrderType, Trade, TradeStatus
@@ -198,43 +199,41 @@ class TradingService:
     def get_valid_order_size(self, usdc: float, price: float):
         """
         Robust search for a (Shares, Price) pair that satisfies Polymarket's 2-decimal USDC rule.
-        Prioritizes the highest valid amount LESS THAN OR EQUAL TO the target usdc.
+        Uses Decimal to eliminate floating point noise.
         """
-        target_k = int(round(usdc * 100))
-        base_p = round(price, 4)
-        
-        # Try finding a solution for a range of "cents" starting from target downwards (max 10% lower)
-        # We search downwards because the user prefers lower amounts over exceeding target
-        cents_range = range(target_k, max(0, int(target_k * 0.9)) - 1, -1)
-        
-        for k in cents_range:
-            maker_target = k / 100.0
+        try:
+            target_usdc = Decimal(str(round(usdc, 2)))
+            base_p = Decimal(str(round(price, 4)))
             
-            # Initial estimate for shares
-            shares_est = round(maker_target / base_p, 4)
-            
-            # Try a range of shares around the estimate
-            # We check both directions because a small price nudge in either direction might balance it
-            for s_offset_ticks in range(500):
-                for sign in [1, -1]:
-                    if s_offset_ticks == 0 and sign == -1: continue
-                    
-                    s = round(shares_est + (sign * s_offset_ticks * 0.0001), 4)
-                    if s <= 0: continue
-                    
-                    # Resulting price P = Maker / S
-                    p = round(maker_target / s, 4)
-                    if p <= 0 or p > 0.99: continue
-                    
-                    # Verify this price and share combo produces EXACTLY the target 2-decimal maker amount
-                    # Floating point precision safety: use round and epsilon
-                    calc_maker = round(s * p, 2)
-                    if abs((s * p) - calc_maker) < 1e-9:
-                        # Success! Now check if the price nudge is within acceptable slippage (1%)
-                        if abs(p - base_p) / base_p <= 0.01:
-                            return calc_maker, s, p
-                            
-        return None, None, None
+            # Search downwards from target USDC (max 10% lower)
+            for k in range(int(target_usdc * 100), int(target_usdc * 90) - 1, -1):
+                maker_target = Decimal(k) / Decimal(100)
+                
+                # Initial estimate for shares (up to 4 decimals)
+                shares_est = (maker_target / base_p).quantize(Decimal("0.0001"), rounding=ROUND_HALF_UP)
+                
+                # Try a range of shares around the estimate
+                for s_offset_ticks in range(500):
+                    for sign in [Decimal("1"), Decimal("-1")]:
+                        if s_offset_ticks == 0 and sign == Decimal("-1"): continue
+                        
+                        s = (shares_est + (sign * Decimal(s_offset_ticks) * Decimal("0.0001"))).quantize(Decimal("0.0001"), rounding=ROUND_HALF_UP)
+                        if s <= 0: continue
+                        
+                        # Resulting price P = Maker / S (round to 4 decimals)
+                        p = (maker_target / s).quantize(Decimal("0.0001"), rounding=ROUND_HALF_UP)
+                        if p <= 0 or p >= Decimal("1.0"): continue
+                        
+                        # Verify the product is EXACTLY the 2-decimal maker target
+                        if (s * p) == maker_target:
+                            # Verify price hasn't shifted more than 5% from target
+                            if abs(p - base_p) / base_p <= Decimal("0.05"):
+                                return float(maker_target), float(s), float(p)
+                                
+            return None, None, None
+        except Exception as e:
+            logger.error(f"TradingService | get_valid_order_size error: {e}")
+            return None, None, None
 
     async def calculate_position_size(self) -> float:
         try:
