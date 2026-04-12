@@ -1,7 +1,7 @@
 import asyncio
 import math
 import time
-from decimal import Decimal, ROUND_HALF_UP
+from decimal import Decimal, ROUND_HALF_UP, ROUND_DOWN
 from datetime import datetime, timezone
 from polymarket_core.config import settings
 from polymarket_core.core.models import Order, OrderSide, OrderStatus, OrderType, Trade, TradeStatus
@@ -37,11 +37,13 @@ class TradingService:
         try:
             # We trust the price and shares passed in, as they should be pre-balanced
             # using get_valid_order_size to satisfy precision requirements.
-            aggressive_price = round(price, 4)
+            # However, we must eliminate float-noise by using Decimal(str(amount)).
+            clean_price = float(Decimal(str(price)).quantize(Decimal("0.0001"), rounding=ROUND_DOWN))
+            clean_shares = float(Decimal(str(shares)).quantize(Decimal("0.0001"), rounding=ROUND_DOWN))
             
-            logger.info(f"TradingService | Placing {order_type} Order | {trade.id} | Price: {aggressive_price} | Shares: {shares}")
+            logger.info(f"TradingService | Placing {order_type} Order | {trade.id} | Price: {clean_price} | Shares: {clean_shares}")
             
-            res = await self._client.place_limit_order(trade.token_id, trade.outcome.value, aggressive_price, shares, "BUY", order_type)
+            res = await self._client.place_limit_order(trade.token_id, trade.outcome.value, clean_price, clean_shares, "BUY", order_type)
             order_id = res.get('orderID')
             if not order_id:
                 logger.error(f"TradingService | Order submission failed: {res}")
@@ -73,13 +75,13 @@ class TradingService:
             if filled_shares > 0:
                 is_full_fill = abs(filled_shares - shares) < 1e-6
                 order.status = OrderStatus.FILLED if is_full_fill else OrderStatus.PARTIALLY_FILLED
-                order.filled_price = aggressive_price
+                order.filled_price = clean_price
                 order.shares = filled_shares
                 order.filled_at = datetime.now(timezone.utc).replace(tzinfo=None)
                 
                 trade.shares = filled_shares
-                trade.entry_price = aggressive_price
-                trade.entry_cost_usdc = filled_shares * aggressive_price
+                trade.entry_price = clean_price
+                trade.entry_cost_usdc = filled_shares * clean_price
                 trade.status = TradeStatus.ACTIVE
                 logger.info(f"TradingService | Execution Complete | {trade.id} | Status: {order.status} | Final Shares: {filled_shares}")
                 return True
