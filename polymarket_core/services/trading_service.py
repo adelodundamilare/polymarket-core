@@ -3,6 +3,7 @@ import math
 import time
 from decimal import Decimal, ROUND_DOWN
 from datetime import datetime, timezone
+from math import gcd
 from polymarket_core.config import settings
 from polymarket_core.core.models import Order, OrderSide, OrderStatus, OrderType, Trade, TradeStatus
 from polymarket_core.db.repositories.order_repo import OrderRepository
@@ -38,8 +39,8 @@ class TradingService:
             clean_price = float(Decimal(str(price)).quantize(Decimal("0.0001")))
             clean_shares = float(Decimal(str(shares)).quantize(Decimal("0.01")))
 
-            shares_dec = Decimal(str(clean_shares))
-            assert shares_dec == shares_dec.quantize(Decimal("0.01")), f"Shares exceeds 2 decimal places: {clean_shares}"
+            assert Decimal(str(clean_shares)) == Decimal(str(clean_shares)).quantize(Decimal("0.01")), \
+                f"Shares exceeds 2dp: {clean_shares}"
 
             logger.info(f"TradingService | Placing {order_type} Order | {trade.id} | Price: {clean_price} | Shares: {clean_shares}")
 
@@ -195,16 +196,23 @@ class TradingService:
 
     def get_valid_order_size(self, usdc: float, price: float):
         try:
-            base_p = Decimal(str(round(price, 4)))
-            target_usdc = Decimal(str(round(usdc, 2)))
+            price_int = round(round(price, 4) * 10000)
+            target_usdc = round(usdc, 2)
 
-            shares = (target_usdc / base_p).quantize(Decimal("0.01"), rounding=ROUND_DOWN)
-            if shares <= 0:
+            g = gcd(price_int, 100)
+            step = 100 // g
+
+            max_shares_int = int(target_usdc * 1_000_000 / price_int)
+            valid_shares_int = (max_shares_int // step) * step
+
+            if valid_shares_int <= 0:
                 return None, None, None
 
-            actual_usdc = (shares * base_p).quantize(Decimal("0.0001"), rounding=ROUND_DOWN)
+            shares = Decimal(valid_shares_int) / Decimal(100)
+            clean_price = Decimal(str(round(price, 4)))
+            actual_usdc = (shares * clean_price).quantize(Decimal("0.0001"), rounding=ROUND_DOWN)
 
-            return float(actual_usdc), float(shares), float(base_p)
+            return float(actual_usdc), float(shares), float(clean_price)
         except Exception as e:
             logger.error(f"TradingService | get_valid_order_size error: {e}")
             return None, None, None
