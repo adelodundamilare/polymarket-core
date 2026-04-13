@@ -1,7 +1,7 @@
 import asyncio
 import math
 import time
-from decimal import Decimal, ROUND_HALF_UP, ROUND_DOWN
+from decimal import Decimal, ROUND_DOWN
 from datetime import datetime, timezone
 from polymarket_core.config import settings
 from polymarket_core.core.models import Order, OrderSide, OrderStatus, OrderType, Trade, TradeStatus
@@ -36,10 +36,10 @@ class TradingService:
 
         try:
             clean_price = float(Decimal(str(price)).quantize(Decimal("0.0001")))
-            clean_shares = float(Decimal(str(shares)).quantize(Decimal("0.0001")))
+            clean_shares = float(Decimal(str(shares)).quantize(Decimal("0.01")))
 
-            maker = Decimal(str(clean_price)) * Decimal(str(clean_shares))
-            assert maker == maker.quantize(Decimal("0.01")), f"Unbalanced maker amount: {maker}"
+            shares_dec = Decimal(str(clean_shares))
+            assert shares_dec == shares_dec.quantize(Decimal("0.01")), f"Shares exceeds 2 decimal places: {clean_shares}"
 
             logger.info(f"TradingService | Placing {order_type} Order | {trade.id} | Price: {clean_price} | Shares: {clean_shares}")
 
@@ -195,29 +195,16 @@ class TradingService:
 
     def get_valid_order_size(self, usdc: float, price: float):
         try:
-            target_usdc = Decimal(str(round(usdc, 2)))
             base_p = Decimal(str(round(price, 4)))
+            target_usdc = Decimal(str(round(usdc, 2)))
 
-            for k in range(int(target_usdc * 100), int(target_usdc * 90) - 1, -1):
-                maker_target = Decimal(k) / Decimal(100)
+            shares = (target_usdc / base_p).quantize(Decimal("0.01"), rounding=ROUND_DOWN)
+            if shares <= 0:
+                return None, None, None
 
-                shares_est = (maker_target / base_p).quantize(Decimal("0.0001"), rounding=ROUND_HALF_UP)
+            actual_usdc = (shares * base_p).quantize(Decimal("0.0001"), rounding=ROUND_DOWN)
 
-                for s_offset_ticks in range(500):
-                    for sign in [Decimal("1"), Decimal("-1")]:
-                        if s_offset_ticks == 0 and sign == Decimal("-1"): continue
-
-                        s = (shares_est + (sign * Decimal(s_offset_ticks) * Decimal("0.0001"))).quantize(Decimal("0.0001"), rounding=ROUND_HALF_UP)
-                        if s <= 0: continue
-
-                        p = (maker_target / s).quantize(Decimal("0.0001"), rounding=ROUND_HALF_UP)
-                        if p <= 0 or p >= Decimal("1.0"): continue
-
-                        if (s * p) == maker_target:
-                            if abs(p - base_p) / base_p <= Decimal("0.05"):
-                                return float(maker_target), float(s), float(p)
-
-            return None, None, None
+            return float(actual_usdc), float(shares), float(base_p)
         except Exception as e:
             logger.error(f"TradingService | get_valid_order_size error: {e}")
             return None, None, None
