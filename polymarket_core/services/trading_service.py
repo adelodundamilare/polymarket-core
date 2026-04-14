@@ -199,21 +199,24 @@ class TradingService:
     def get_valid_order_size(self, usdc: float, price: float):
         try:
             price_dec = Decimal(str(round(price, 2)))
-            price_int = int(price_dec * Decimal(100))
+            price_int = int(price_dec * 100)
 
-            target_usdc_dec = Decimal(str(round(usdc, 2)))
-            target_usdc_int = int(target_usdc_dec * Decimal(10000))
+            target_usdc_int = int(Decimal(str(round(usdc, 2))) * 10000)
+
+            g = gcd(price_int, 100)
+            step = 100 // g
 
             max_shares_int = target_usdc_int // price_int
+            valid_shares_int = (max_shares_int // step) * step
 
-            if max_shares_int <= 0:
-                logger.warning(f"TradingService | get_valid_order_size | No valid share size for usdc={usdc}, price={price}")
+            if valid_shares_int <= 0:
+                logger.warning(f"TradingService | get_valid_order_size | No valid share size for usdc={usdc} price={price}")
                 return None, None, None
 
-            shares = Decimal(max_shares_int) / Decimal(100)
+            shares = Decimal(valid_shares_int) / Decimal(100)
             actual_usdc = shares * price_dec
 
-            logger.debug(f"TradingService | get_valid_order_size | shares={shares}, price={price_dec}, usdc={actual_usdc}")
+            logger.debug(f"TradingService | get_valid_order_size | shares={shares} price={price_dec} usdc={actual_usdc}")
             return float(actual_usdc), float(shares), float(price_dec)
         except Exception as e:
             logger.error(f"TradingService | get_valid_order_size error: {e}")
