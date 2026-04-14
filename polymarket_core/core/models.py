@@ -102,7 +102,3 @@ class Trade:
     entry_cvd_session: float | None = None
     take_profit_order_id: str | None = None
     take_profit_price: float | None = None
-    entry_gap_usd: float | None = None
-    trigger_gap: str | None = None
-    trigger_atr: float | None = None
-    trigger_ema: float | None = None
