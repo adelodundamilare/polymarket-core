@@ -39,9 +39,6 @@ class TradingService:
             clean_price = float(Decimal(str(price)).quantize(Decimal("0.0001")))
             clean_shares = float(Decimal(str(shares)).quantize(Decimal("0.01")))
 
-            assert Decimal(str(clean_shares)) == Decimal(str(clean_shares)).quantize(Decimal("0.01")), \
-                f"Shares exceeds 2dp: {clean_shares}"
-
             logger.info(f"TradingService | Placing {order_type} Order | {trade.id} | Price: {clean_price} | Shares: {clean_shares}")
 
             res = await self._client.place_limit_order(trade.token_id, trade.outcome.value, clean_price, clean_shares, "BUY", order_type)
@@ -57,6 +54,9 @@ class TradingService:
             wait_time = 1.0 if order_type == "FAK" else settings.execution_timeout_sec
             await asyncio.sleep(wait_time)
 
+            last_status = ""
+            filled_shares = 0.0
+
             try:
                 status_res = await self._client.get_order_status(order_id)
                 last_status = status_res.get("status", "").upper()
@@ -64,6 +64,8 @@ class TradingService:
 
                 if last_status == "FILLED":
                     logger.info(f"TradingService | {order_type} Order FILLED | {trade.id} | Shares: {filled_shares}")
+                elif last_status == "PARTIALLY_FILLED":
+                    logger.info(f"TradingService | {order_type} Order PARTIALLY_FILLED | {trade.id} | Shares: {filled_shares}")
                 elif last_status in ["CANCELED", "CANCELLED", "EXPIRED"]:
                     logger.warning(f"TradingService | {order_type} Order {last_status} | {trade.id} | Filled: {filled_shares}")
             except Exception as e:
@@ -196,23 +198,27 @@ class TradingService:
 
     def get_valid_order_size(self, usdc: float, price: float):
         try:
-            price_int = round(round(price, 4) * 10000)
-            target_usdc = round(usdc, 2)
+            price_dec = Decimal(str(round(price, 4)))
+            price_int = int(price_dec * Decimal(10000))
+
+            target_usdc_dec = Decimal(str(round(usdc, 2)))
+            target_usdc_int = int(target_usdc_dec * Decimal(1_000_000))
 
             g = gcd(price_int, 100)
             step = 100 // g
 
-            max_shares_int = int(target_usdc * 1_000_000 / price_int)
+            max_shares_int = target_usdc_int // price_int
             valid_shares_int = (max_shares_int // step) * step
 
             if valid_shares_int <= 0:
+                logger.warning(f"TradingService | get_valid_order_size | No valid share size for usdc={usdc}, price={price}")
                 return None, None, None
 
             shares = Decimal(valid_shares_int) / Decimal(100)
-            clean_price = Decimal(str(round(price, 4)))
-            actual_usdc = (shares * clean_price).quantize(Decimal("0.0001"), rounding=ROUND_DOWN)
+            actual_usdc = shares * price_dec
 
-            return float(actual_usdc), float(shares), float(clean_price)
+            logger.debug(f"TradingService | get_valid_order_size | shares={shares}, price={price_dec}, usdc={actual_usdc}")
+            return float(actual_usdc), float(shares), float(price_dec)
         except Exception as e:
             logger.error(f"TradingService | get_valid_order_size error: {e}")
             return None, None, None
