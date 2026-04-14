@@ -36,7 +36,7 @@ class TradingService:
             return True
 
         try:
-            clean_price = float(Decimal(str(price)).quantize(Decimal("0.0001")))
+            clean_price = float(Decimal(str(price)).quantize(Decimal("0.01")))
             clean_shares = float(Decimal(str(shares)).quantize(Decimal("0.01")))
 
             logger.info(f"TradingService | Placing {order_type} Order | {trade.id} | Price: {clean_price} | Shares: {clean_shares}")
@@ -101,7 +101,7 @@ class TradingService:
     async def execute_safe_entry(self, trade: Trade, order: Order, target_usdc: float, signal_price: float, order_type: str = "FAK") -> bool:
         try:
             slippage = settings.execution_slippage_pct
-            aggressive_price = round(signal_price * (1 + slippage), 4)
+            aggressive_price = round(signal_price * (1 + slippage), 2)
             aggressive_price = min(0.99, max(0.01, aggressive_price))
 
             maker_amount, shares, final_price = self.get_valid_order_size(target_usdc, aggressive_price)
@@ -198,23 +198,19 @@ class TradingService:
 
     def get_valid_order_size(self, usdc: float, price: float):
         try:
-            price_dec = Decimal(str(round(price, 4)))
-            price_int = int(price_dec * Decimal(10000))
+            price_dec = Decimal(str(round(price, 2)))
+            price_int = int(price_dec * Decimal(100))
 
             target_usdc_dec = Decimal(str(round(usdc, 2)))
-            target_usdc_int = int(target_usdc_dec * Decimal(1_000_000))
-
-            g = gcd(price_int, 100)
-            step = 100 // g
+            target_usdc_int = int(target_usdc_dec * Decimal(10000))
 
             max_shares_int = target_usdc_int // price_int
-            valid_shares_int = (max_shares_int // step) * step
 
-            if valid_shares_int <= 0:
+            if max_shares_int <= 0:
                 logger.warning(f"TradingService | get_valid_order_size | No valid share size for usdc={usdc}, price={price}")
                 return None, None, None
 
-            shares = Decimal(valid_shares_int) / Decimal(100)
+            shares = Decimal(max_shares_int) / Decimal(100)
             actual_usdc = shares * price_dec
 
             logger.debug(f"TradingService | get_valid_order_size | shares={shares}, price={price_dec}, usdc={actual_usdc}")
