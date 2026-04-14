@@ -92,11 +92,11 @@ class BinanceClient:
 
         return await self._fetch("/klines", params)
 
-    async def get_funding_rate(self, symbol: str) -> float:
-        """Fetch the current funding rate for a symbol."""
+    async def get_funding_rate(self, symbol: str) -> float | None:
+        """Fetch the historical settled funding rate for a symbol."""
         binance_symbol = self.SYMBOL_MAP.get(symbol.upper(), f"{symbol.upper()}USDT")
-        params = {"symbol": binance_symbol}
-        data = await self._fetch_futures("/premiumIndex", params)
-        if data and "lastFundingRate" in data:
-            return float(data["lastFundingRate"])
-        return 0.0
+        params = {"symbol": binance_symbol, "limit": 1}
+        data = await self._fetch_futures("/fundingRate", params)
+        if data and isinstance(data, list) and len(data) > 0:
+            return float(data[0].get("fundingRate", 0.0))
+        return None
