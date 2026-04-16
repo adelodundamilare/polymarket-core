@@ -1,5 +1,6 @@
-from typing import List
+from typing import List, Dict
 import statistics
+from polymarket_core.external.binance.client import BinanceClient
 
 class IndicatorService:
     @staticmethod
@@ -71,9 +72,31 @@ class IndicatorService:
             adxs.append(current_adx)
         return adxs
 
-class MarketRegime:
-    STRONG_TREND_UP = "STRONG_TREND_UP"
-    STRONG_TREND_DOWN = "STRONG_TREND_DOWN"
-    STABLE = "STABLE"
-    CHOPPY = "CHOPPY"
-    NEUTRAL = "NEUTRAL"
+    @staticmethod
+    async def get_market_metrics(coin: str) -> Dict[str, float]:
+        try:
+            binance = BinanceClient()
+            klines = await binance.get_klines(coin, "1m", limit=40)
+            if not klines or len(klines) < 30:
+                return {"adx": 0.0, "atr": 0.0, "ema_pct": 0.0}
+
+            highs = [float(k[2]) for k in klines]
+            lows = [float(k[3]) for k in klines]
+            closes = [float(k[4]) for k in klines]
+
+            emas = IndicatorService.calculate_ema(closes, 9)
+            ema_pct = (round(((emas[-1] - closes[-1]) / closes[-1]) * 100, 2) if emas else 0.0)
+            
+            atrs = IndicatorService.calculate_atr(highs, lows, closes, 14)
+            atr = round(atrs[-1], 4) if atrs else 0.0
+            
+            adxs = IndicatorService.calculate_adx(highs, lows, closes, 14)
+            adx = round(adxs[-1], 2) if adxs else 0.0
+
+            return {
+                "adx": adx,
+                "atr": atr,
+                "ema_pct": ema_pct
+            }
+        except Exception:
+            return {"adx": 0.0, "atr": 0.0, "ema_pct": 0.0}
