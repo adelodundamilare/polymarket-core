@@ -207,6 +207,24 @@ class MarketDataService:
         return results
 
     @staticmethod
+    def calculate_macro_trend(normalized_results: list[str], dominance_pct: float) -> str:
+        valid_macro = [r for r in normalized_results if r not in ("pending", "unknown")]
+        if not valid_macro:
+            return "MIXED"
+            
+        up_values = {"up", "yes", "true", "1", "above", "higher"}
+        down_values = {"down", "no", "false", "0", "below", "lower"}
+        
+        up_cnt = sum(1 for r in valid_macro if r in up_values)
+        dn_cnt = sum(1 for r in valid_macro if r in down_values)
+        
+        if up_cnt / len(valid_macro) >= dominance_pct:
+            return "UPTREND"
+        elif dn_cnt / len(valid_macro) >= dominance_pct:
+            return "DOWNTREND"
+        return "MIXED"
+
+    @staticmethod
     def calculate_obi(alt_data: dict) -> float:
         bid_v = alt_data.get("bid_volume", 0)
         ask_v = alt_data.get("ask_volume", 0)

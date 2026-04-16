@@ -77,6 +77,9 @@ async def get_market_data_bundle(client, market: dict, coin: str, yes_token: str
 async def get_prices_for_markets(client, markets: dict[str, dict]):
     return await _get_service("market_data").get_prices_for_markets(client, markets)
 
+def calculate_macro_trend(normalized_results: list[str], dominance_pct: float) -> str:
+    return MarketDataService.calculate_macro_trend(normalized_results, dominance_pct)
+
 def calculate_obi(alt_data: dict):
     return MarketDataService.calculate_obi(alt_data)
 
