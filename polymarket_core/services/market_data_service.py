@@ -212,8 +212,8 @@ class MarketDataService:
         if not valid_macro:
             return "MIXED"
             
-        up_values = {"up", "yes", "true", "1", "above", "higher"}
-        down_values = {"down", "no", "false", "0", "below", "lower"}
+        up_values = {"up", "yes", "true", "0", "above", "higher"}
+        down_values = {"down", "no", "false", "1", "below", "lower"}
         
         up_cnt = sum(1 for r in valid_macro if r in up_values)
         dn_cnt = sum(1 for r in valid_macro if r in down_values)
