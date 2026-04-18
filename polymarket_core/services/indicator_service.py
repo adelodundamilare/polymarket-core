@@ -100,3 +100,35 @@ class IndicatorService:
             }
         except Exception:
             return {"adx": 0.0, "atr": 0.0, "ema_pct": 0.0}
+
+    @staticmethod
+    async def get_structural_trend(coin: str) -> str:
+        try:
+            binance = BinanceClient()
+            # Fetch 5m klines for structural macro trend
+            klines = await binance.get_klines(coin, "5m", limit=60)
+            if not klines or len(klines) < 50:
+                return "MIXED"
+
+            highs = [float(k[2]) for k in klines]
+            lows = [float(k[3]) for k in klines]
+            closes = [float(k[4]) for k in klines]
+            current_price = closes[-1]
+
+            ema_9 = IndicatorService.calculate_ema(closes, 9)[-1]
+            ema_21 = IndicatorService.calculate_ema(closes, 21)[-1]
+            
+            adxs = IndicatorService.calculate_adx(highs, lows, closes, 14)
+            current_adx = round(adxs[-1], 2) if adxs else 0.0
+
+            # UPTREND: 9-EMA > 21-EMA, Price > 9-EMA, ADX > 20
+            if ema_9 > ema_21 and current_price > ema_9 and current_adx > 20:
+                return "UPTREND"
+            # DOWNTREND: 9-EMA < 21-EMA, Price < 9-EMA, ADX > 20
+            elif ema_9 < ema_21 and current_price < ema_9 and current_adx > 20:
+                return "DOWNTREND"
+            else:
+                return "MIXED"
+                
+        except Exception:
+            return "MIXED"
