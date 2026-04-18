@@ -207,22 +207,61 @@ class MarketDataService:
         return results
 
     @staticmethod
-    def calculate_macro_trend(normalized_results: list[str], dominance_pct: float) -> str:
-        valid_macro = [r for r in normalized_results if r not in ("pending", "unknown")]
-        if not valid_macro:
-            return "MIXED"
+    def analyze_live_regime(normalized_results: list[str], streak_len: int, occurrences: int, dominance_pct: float) -> str:
+        valid_res = [r for r in normalized_results if r not in ("pending", "unknown")]
+        if len(valid_res) < streak_len + 2:
+            return "CHOPPY"
             
         up_values = {"up", "yes", "true", "0", "above", "higher"}
         down_values = {"down", "no", "false", "1", "below", "lower"}
         
-        up_cnt = sum(1 for r in valid_macro if r in up_values)
-        dn_cnt = sum(1 for r in valid_macro if r in down_values)
+        follows = 0
+        fades = 0
+        total_found = 0
         
-        if up_cnt / len(valid_macro) >= dominance_pct:
-            return "UPTREND"
-        elif dn_cnt / len(valid_macro) >= dominance_pct:
-            return "DOWNTREND"
-        return "MIXED"
+        # We start from the end (newest) and go backwards to find the last N occurrences
+        # A full pattern takes streak_len + 2 entries. e.g. U U U D ?
+        for i in range(len(valid_res) - (streak_len + 2), -1, -1):
+            window = valid_res[i : i + streak_len + 2]
+            streak = window[:-2]
+            brk = window[-2]
+            outcome = window[-1]
+            
+            is_up_streak = all(p in up_values for p in streak)
+            is_dn_streak = all(p in down_values for p in streak)
+            
+            if is_up_streak and brk in down_values:
+                # Up streak broken by down
+                if outcome in down_values:
+                    follows += 1
+                    total_found += 1
+                elif outcome in up_values:
+                    fades += 1
+                    total_found += 1
+            elif is_dn_streak and brk in up_values:
+                # Down streak broken by up
+                if outcome in up_values:
+                    follows += 1
+                    total_found += 1
+                elif outcome in down_values:
+                    fades += 1
+                    total_found += 1
+            
+            if total_found >= occurrences:
+                break
+                
+        if total_found == 0:
+            return "CHOPPY"
+            
+        follow_rate = follows / total_found
+        fade_rate = fades / total_found
+        
+        if follow_rate >= dominance_pct:
+            return "FOLLOW_REGIME"
+        elif fade_rate >= dominance_pct:
+            return "FADE_REGIME"
+            
+        return "CHOPPY"
 
     @staticmethod
     def calculate_obi(alt_data: dict) -> float:
