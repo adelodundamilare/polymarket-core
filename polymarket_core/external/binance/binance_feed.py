@@ -96,8 +96,8 @@ class BinanceFeed:
                                         self._price_history[coin].popleft()
                                         
                                 elif "@depth" in stream:
-                                    bids = pay.get("b", [])
-                                    asks = pay.get("a", [])
+                                    bids = pay.get("bids") or pay.get("b", [])
+                                    asks = pay.get("asks") or pay.get("a", [])
                                     if bids and asks:
                                         bid_vol = sum(float(b[1]) for b in bids[:10])
                                         ask_vol = sum(float(a[1]) for a in asks[:10])
