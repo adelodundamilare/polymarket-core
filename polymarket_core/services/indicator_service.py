@@ -1,6 +1,9 @@
 from typing import List, Dict
 import statistics
 from polymarket_core.external.binance.client import BinanceClient
+from polymarket_core.logger import get_logger
+
+logger = get_logger(__name__)
 
 class IndicatorService:
     @staticmethod
@@ -35,6 +38,35 @@ class IndicatorService:
             current_atr = (current_atr * (period - 1) + tr_list[i]) / period
             atrs.append(current_atr)
         return atrs
+
+    @staticmethod
+    def calculate_wick_ratio(highs: List[float], lows: List[float], opens: List[float], closes: List[float], period: int = 14) -> float:
+        if len(highs) < period: return 2.0 # Default to messy if not enough data
+        
+        ratios = []
+        for i in range(len(highs) - period, len(highs)):
+            body = abs(closes[i] - opens[i])
+            wick = (highs[i] - lows[i]) - body
+            if body == 0:
+                # Doji or flat candle: very messy
+                ratios.append(2.0)
+            else:
+                ratios.append(wick / body)
+        
+        return sum(ratios) / len(ratios)
+
+    @staticmethod
+    def calculate_candle_consistency(opens: List[float], closes: List[float], period: int = 14) -> float:
+        if len(opens) < period: return 0.5 # Neutral
+        
+        up_count = 0
+        for i in range(len(opens) - period, len(opens)):
+            if closes[i] > opens[i]:
+                up_count += 1
+        
+        # Returns 0.0 to 1.0. 0.5 is perfectly alternating, 1.0 is pure one direction.
+        bias = up_count / period
+        return abs(bias - 0.5) * 2 # Normalized to 0.0 (messy) to 1.0 (clean)
 
     @staticmethod
     def calculate_adx(highs: List[float], lows: List[float], closes: List[float], period: int = 14) -> List[float]:
@@ -100,6 +132,59 @@ class IndicatorService:
             }
         except Exception:
             return {"adx": 0.0, "atr": 0.0, "ema_pct": 0.0}
+
+    @staticmethod
+    async def get_market_score(coin: str, interval: str = "1m") -> Dict[str, any]:
+        try:
+            binance = BinanceClient()
+            klines = await binance.get_klines(coin, interval, limit=100)
+            if not klines or len(klines) < 30:
+                return {"score": 0, "status": "MESSY", "metrics": {}}
+
+            highs = [float(k[2]) for k in klines]
+            lows = [float(k[3]) for k in klines]
+            opens = [float(k[1]) for k in klines]
+            closes = [float(k[4]) for k in klines]
+
+            wick_ratio = IndicatorService.calculate_wick_ratio(highs, lows, opens, closes, 14)
+            consistency = IndicatorService.calculate_candle_consistency(opens, closes, 14)
+            
+            adxs = IndicatorService.calculate_adx(highs, lows, closes, 14)
+            adx = adxs[-1] if adxs else 0.0
+            
+            atrs = IndicatorService.calculate_atr(highs, lows, closes, 14)
+            # ATR Stability: Std Dev / Mean
+            atr_stability = 1.0
+            if len(atrs) >= 10:
+                recent_atrs = atrs[-10:]
+                mean_atr = sum(recent_atrs) / 10
+                if mean_atr > 0:
+                    std_atr = statistics.stdev(recent_atrs)
+                    atr_stability = std_atr / mean_atr
+
+            score = 0
+            if wick_ratio < 0.8: score += 1
+            if adx > 25: score += 1
+            if consistency > 0.6: score += 1
+            if atr_stability < 0.15: score += 1
+            
+            status = "MESSY"
+            if score >= 3: status = "CLEAN"
+            elif score >= 2: status = "ACCEPTABLE"
+
+            return {
+                "score": score,
+                "status": status,
+                "metrics": {
+                    "wick_ratio": round(wick_ratio, 2),
+                    "adx": round(adx, 2),
+                    "consistency": round(consistency, 2),
+                    "atr_stability": round(atr_stability, 3)
+                }
+            }
+        except Exception as e:
+            logger.error(f"Failed to calculate market score for {coin}: {e}")
+            return {"score": 0, "status": "MESSY", "metrics": {}}
 
     @staticmethod
     async def get_structural_trend(coin: str) -> str:

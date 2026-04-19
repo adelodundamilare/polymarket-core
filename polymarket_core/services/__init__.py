@@ -107,3 +107,6 @@ async def resolve_trade(trade, winning_outcome, market):
 
 async def get_market_metrics(coin: str):
     return await IndicatorService.get_market_metrics(coin)
+
+async def get_market_score(coin: str, interval: str = "1m"):
+    return await IndicatorService.get_market_score(coin, interval)
