@@ -1,4 +1,4 @@
-from typing import List, Dict
+from typing import List, Dict, Any
 import statistics
 from polymarket_core.external.binance.client import BinanceClient
 from polymarket_core.logger import get_logger
@@ -41,150 +41,144 @@ class IndicatorService:
 
     @staticmethod
     def calculate_wick_ratio(highs: List[float], lows: List[float], opens: List[float], closes: List[float], period: int = 14) -> float:
-        if len(highs) < period: return 2.0 # Default to messy if not enough data
-        
-        ratios = []
+        if len(highs) < period: return 1.0
+        wick_sum = 0.0
+        range_sum = 0.0
         for i in range(len(highs) - period, len(highs)):
+            tr = max(highs[i] - lows[i], 1e-9)
             body = abs(closes[i] - opens[i])
-            wick = (highs[i] - lows[i]) - body
-            if body == 0:
-                # Doji or flat candle: very messy
-                ratios.append(2.0)
-            else:
-                ratios.append(wick / body)
-        
-        return sum(ratios) / len(ratios)
+            wick_sum += (tr - body)
+            range_sum += tr
+        return wick_sum / range_sum
 
     @staticmethod
-    def calculate_candle_consistency(opens: List[float], closes: List[float], period: int = 14) -> float:
-        if len(opens) < period: return 0.5 # Neutral
-        
-        up_count = 0
-        for i in range(len(opens) - period, len(opens)):
+    def calculate_body_continuity(opens: List[float], closes: List[float], highs: List[float], lows: List[float], period: int = 14) -> float:
+        if len(opens) < period + 1:
+            return 1.0
+        gap_sum = 0.0
+        atr_sum = 0.0
+        start = len(opens) - period - 1
+        for i in range(start, len(opens) - 1):
+            gap = abs(closes[i] - opens[i + 1])
+            gap_sum += gap
+            atr = max(highs[i] - lows[i], 1e-9)
+            atr_sum += atr
+        ratio = gap_sum / atr_sum if atr_sum > 0 else 1.0
+        return min(ratio, 1.0)
+
+    @staticmethod
+    def calculate_directional_consistency(opens: List[float], closes: List[float], period: int = 14) -> float:
+        if len(opens) < period:
+            return 1.0
+        bullish = 0
+        start = len(opens) - period
+        for i in range(start, len(opens)):
             if closes[i] > opens[i]:
-                up_count += 1
-        
-        # Returns 0.0 to 1.0. 0.5 is perfectly alternating, 1.0 is pure one direction.
-        bias = up_count / period
-        return abs(bias - 0.5) * 2 # Normalized to 0.0 (messy) to 1.0 (clean)
+                bullish += 1
+        bearish = period - bullish
+        dominant = max(bullish, bearish)
+        return 1.0 - (dominant / period)
+
+    @staticmethod
+    def calculate_cleanliness(highs: List[float], lows: List[float], opens: List[float], closes: List[float], period: int = 14) -> dict:
+        wick = IndicatorService.calculate_wick_ratio(highs, lows, opens, closes, period)
+        continuity = IndicatorService.calculate_body_continuity(opens, closes, highs, lows, period)
+        direction = IndicatorService.calculate_directional_consistency(opens, closes, period)
+
+        score = 1.0 - (0.4 * wick + 0.3 * continuity + 0.3 * direction)
+        score = max(0.0, min(1.0, score))
+
+        if score >= 0.70:
+            label = "CLEAN"
+        elif score >= 0.50:
+            label = "NORMAL"
+        else:
+            label = "MESSY"
+
+        return {
+            "cleanliness": round(score, 3),
+            "label": label,
+            "wick_ratio": round(wick, 3),
+            "body_continuity": round(continuity, 3),
+            "directional_consistency": round(direction, 3),
+        }
 
     @staticmethod
     def calculate_adx(highs: List[float], lows: List[float], closes: List[float], period: int = 14) -> List[float]:
         if len(highs) < period * 2:
             return []
-        up_moves = [highs[i] - highs[i-1] for i in range(1, len(highs))]
-        down_moves = [lows[i-1] - lows[i] for i in range(1, len(lows))]
-        plus_dm = []
-        minus_dm = []
-        for u, d in zip(up_moves, down_moves):
-            plus_dm.append(u if u > d and u > 0 else 0)
-            minus_dm.append(d if d > u and d > 0 else 0)
-        tr = []
+            
+        tr_list = []
+        plus_dm_list = []
+        minus_dm_list = []
+        
         for i in range(1, len(highs)):
-            tr.append(max(highs[i]-lows[i], abs(highs[i]-closes[i-1]), abs(lows[i]-closes[i-1])))
-        smooth_tr = sum(tr[:period])
-        smooth_plus_dm = sum(plus_dm[:period])
-        smooth_minus_dm = sum(minus_dm[:period])
-        dx_list = []
-        for i in range(period, len(tr)):
-            smooth_tr = smooth_tr - (smooth_tr / period) + tr[i]
-            smooth_plus_dm = smooth_plus_dm - (smooth_plus_dm / period) + plus_dm[i-1]
-            smooth_minus_dm = smooth_minus_dm - (smooth_minus_dm / period) + minus_dm[i-1]
-            pdi = 100 * (smooth_plus_dm / smooth_tr) if smooth_tr > 0 else 0
-            mdi = 100 * (smooth_minus_dm / smooth_tr) if smooth_tr > 0 else 0
-            dx = 100 * abs(pdi - mdi) / (pdi + mdi) if (pdi + mdi) > 0 else 0
-            dx_list.append(dx)
-        if len(dx_list) < period:
-            return []
-        adxs = []
-        current_adx = sum(dx_list[:period]) / period
-        adxs.append(current_adx)
-        for i in range(period, len(dx_list)):
-            current_adx = (current_adx * (period - 1) + dx_list[i]) / period
-            adxs.append(current_adx)
+            tr = max(highs[i] - lows[i], abs(highs[i] - closes[i-1]), abs(lows[i] - closes[i-1]))
+            tr_list.append(tr)
+            
+            up_move = highs[i] - highs[i-1]
+            down_move = lows[i-1] - lows[i]
+            
+            if up_move > down_move and up_move > 0:
+                plus_dm_list.append(up_move)
+            else:
+                plus_dm_list.append(0)
+                
+            if down_move > up_move and down_move > 0:
+                minus_dm_list.append(down_move)
+            else:
+                minus_dm_list.append(0)
+                
+        # Wilders Smoothing
+        def smooth(data, p):
+            smoothed = [sum(data[:p])]
+            for i in range(p, len(data)):
+                smoothed.append(smoothed[-1] - (smoothed[-1] / p) + data[i])
+            return smoothed
+
+        tr_s = smooth(tr_list, period)
+        plus_dm_s = smooth(plus_dm_list, period)
+        minus_dm_s = smooth(minus_dm_list, period)
+        
+        plus_di = [(100 * p / t) if t > 0 else 0 for p, t in zip(plus_dm_s, tr_s)]
+        minus_di = [(100 * m / t) if t > 0 else 0 for m, t in zip(minus_dm_s, tr_s)]
+        
+        dx = []
+        for p, m in zip(plus_di, minus_di):
+            denom = abs(p + m)
+            if denom == 0:
+                dx.append(0)
+            else:
+                dx.append(100 * abs(p - m) / denom)
+                
+        adxs = [sum(dx[:period]) / period]
+        for i in range(period, len(dx)):
+            adxs.append((adxs[-1] * (period - 1) + dx[i]) / period)
+            
         return adxs
 
     @staticmethod
-    async def get_market_metrics(coin: str) -> Dict[str, float]:
+    async def get_market_score(coin: str, interval: str = "1m") -> dict:
         try:
             binance = BinanceClient()
-            klines = await binance.get_klines(coin, "1m", limit=40)
-            if not klines or len(klines) < 30:
-                return {"adx": 0.0, "atr": 0.0, "ema_pct": 0.0}
-
-            highs = [float(k[2]) for k in klines]
-            lows = [float(k[3]) for k in klines]
-            closes = [float(k[4]) for k in klines]
-
-            emas = IndicatorService.calculate_ema(closes, 9)
-            ema_pct = (round(((emas[-1] - closes[-1]) / closes[-1]) * 100, 2) if emas else 0.0)
-            
-            atrs = IndicatorService.calculate_atr(highs, lows, closes, 14)
-            atr = round(atrs[-1], 4) if atrs else 0.0
-            
-            adxs = IndicatorService.calculate_adx(highs, lows, closes, 14)
-            adx = round(adxs[-1], 2) if adxs else 0.0
-
-            return {
-                "adx": adx,
-                "atr": atr,
-                "ema_pct": ema_pct
-            }
-        except Exception:
-            return {"adx": 0.0, "atr": 0.0, "ema_pct": 0.0}
-
-    @staticmethod
-    async def get_market_score(coin: str, interval: str = "1m") -> Dict[str, any]:
-        try:
-            binance = BinanceClient()
-            klines = await binance.get_klines(coin, interval, limit=100)
-            if not klines or len(klines) < 30:
-                return {"score": 0, "status": "MESSY", "metrics": {}}
+            klines = await binance.get_klines(coin, interval, limit=50)
+            if not klines or len(klines) < 20:
+                return {"score": 0, "label": "MESSY", "metrics": {}}
 
             highs = [float(k[2]) for k in klines]
             lows = [float(k[3]) for k in klines]
             opens = [float(k[1]) for k in klines]
             closes = [float(k[4]) for k in klines]
 
-            wick_ratio = IndicatorService.calculate_wick_ratio(highs, lows, opens, closes, 14)
-            consistency = IndicatorService.calculate_candle_consistency(opens, closes, 14)
-            
-            adxs = IndicatorService.calculate_adx(highs, lows, closes, 14)
-            adx = adxs[-1] if adxs else 0.0
-            
-            atrs = IndicatorService.calculate_atr(highs, lows, closes, 14)
-            # ATR Stability: Std Dev / Mean
-            atr_stability = 1.0
-            if len(atrs) >= 10:
-                recent_atrs = atrs[-10:]
-                mean_atr = sum(recent_atrs) / 10
-                if mean_atr > 0:
-                    std_atr = statistics.stdev(recent_atrs)
-                    atr_stability = std_atr / mean_atr
-
-            score = 0
-            if wick_ratio < 0.8: score += 1
-            if adx > 25: score += 1
-            if consistency > 0.6: score += 1
-            if atr_stability < 0.15: score += 1
-            
-            status = "MESSY"
-            if score >= 3: status = "CLEAN"
-            elif score >= 2: status = "ACCEPTABLE"
+            result = IndicatorService.calculate_cleanliness(highs, lows, opens, closes, 14)
 
             return {
-                "score": score,
-                "status": status,
-                "metrics": {
-                    "wick_ratio": round(wick_ratio, 2),
-                    "adx": round(adx, 2),
-                    "consistency": round(consistency, 2),
-                    "atr_stability": round(atr_stability, 3)
-                }
+                "label": result["label"],
+                "metrics": result
             }
         except Exception as e:
-            logger.error(f"Failed to calculate market score for {coin}: {e}")
-            return {"score": 0, "status": "MESSY", "metrics": {}}
+            logger.error(f"Failed to calculate cleanliness engine score for {coin}: {e}")
+            return {"label": "MESSY", "metrics": {"cleanliness": 0.0, "wick_ratio": 1.0}}
 
     @staticmethod
     async def get_structural_trend(coin: str) -> str:
