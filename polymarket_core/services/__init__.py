@@ -2,6 +2,7 @@ from .trading_service import TradingService
 from .market_data_service import MarketDataService
 from .resolution_service import ResolutionService
 from .indicator_service import IndicatorService
+from .paper_wallet_service import PaperWalletService
 
 _services = {
     "trading": None,
@@ -110,3 +111,6 @@ async def get_market_metrics(coin: str):
 
 async def get_market_score(coin: str, interval: str = "1m"):
     return await IndicatorService.get_market_score(coin, interval)
+
+def get_paper_wallet() -> PaperWalletService:
+    return PaperWalletService()

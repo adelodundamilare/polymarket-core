@@ -143,6 +143,21 @@ class TradeRepository:
             db_trade.resolved_at = datetime.now(timezone.utc).replace(tzinfo=None)
             self._session.commit()
 
+    def get_paper_pnl(self) -> float:
+        """Sums up total_pnl_usdc for all paper trades."""
+        result = self._session.query(func.sum(TradeModel.total_pnl_usdc)).filter(
+            TradeModel.is_paper == True
+        ).scalar()
+        return float(result or 0.0)
+
+    def get_paper_active_cost(self) -> float:
+        """Sums up entry_cost_usdc for currently active paper trades."""
+        result = self._session.query(func.sum(TradeModel.entry_cost_usdc)).filter(
+            TradeModel.is_paper == True,
+            TradeModel.status == TradeStatus.ACTIVE
+        ).scalar()
+        return float(result or 0.0)
+
     def get_stats(
         self,
         start_date: datetime | None = None,
