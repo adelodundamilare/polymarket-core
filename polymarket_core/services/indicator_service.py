@@ -208,6 +208,9 @@ class IndicatorService:
                 return "DOWNTREND"
             else:
                 return "MIXED"
+        except Exception as e:
+            logger.error(f"Failed to calculate structural trend for {coin}: {e}")
+            return "MIXED"
                 
     @staticmethod
     async def get_market_metrics(coin: str) -> Dict[str, float]:
