@@ -160,6 +160,8 @@ class PolymarketClient:
             key=settings.wallet_private_key,
             chain_id=137,
             creds=creds,
+            signature_type=settings.polymarket_signature_type,
+            funder=self._address
         )
 
         try:
@@ -219,6 +221,8 @@ class PolymarketClient:
             key=settings.wallet_private_key,
             chain_id=137,
             creds=creds,
+            signature_type=settings.polymarket_signature_type,
+            funder=self._address
         )
 
         try:
@@ -250,6 +254,8 @@ class PolymarketClient:
             host=settings.polymarket_base_url,
             key=settings.wallet_private_key,
             chain_id=137,
+            signature_type=settings.polymarket_signature_type,
+            funder=self._address
         )
 
         try:
@@ -284,6 +290,8 @@ class PolymarketClient:
             key=settings.wallet_private_key,
             chain_id=137,
             creds=creds,
+            signature_type=settings.polymarket_signature_type,
+            funder=self._address
         )
 
         try:
@@ -305,6 +313,8 @@ class PolymarketClient:
             key=settings.wallet_private_key,
             chain_id=137,
             creds=creds,
+            signature_type=settings.polymarket_signature_type,
+            funder=self._address
         )
 
         try:
@@ -329,6 +339,8 @@ class PolymarketClient:
             key=settings.wallet_private_key,
             chain_id=137,
             creds=creds,
+            signature_type=settings.polymarket_signature_type,
+            funder=self._address
         )
 
         try:
@@ -353,6 +365,8 @@ class PolymarketClient:
             key=settings.wallet_private_key,
             chain_id=137,
             creds=creds,
+            signature_type=settings.polymarket_signature_type,
+            funder=self._address
         )
 
         try:
