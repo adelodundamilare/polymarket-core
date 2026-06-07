@@ -26,8 +26,10 @@ class CoreSettings(BaseSettings):
     wallet_private_key: str = ""
 
     polygon_rpc_url: str = "https://polygon.drpc.org"
-    ctf_contract_address: str = "0x4D97DCd97eC945f40cF65F87097ACe5EA0476045"
-    usdc_token_address: str = "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174"
+    ctf_contract_address: str = "0xE111180000d2663C0091e4f400237545B87B996B"
+    collateral_token_address: str = "0x899017C73B8A3F2C5Edfb7CA1C18eA29DF2103f5" # Example pUSD address, will be overridden by .env
+    default_tick_size: str = "0.01"
+    builder_code: str = ""
 
     stop_loss_enabled: bool = False
     stop_loss_pct: float = 0.05

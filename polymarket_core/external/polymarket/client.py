@@ -10,8 +10,8 @@ from polymarket_core.config import settings
 from polymarket_core.exceptions import MarketNotFoundError, PolymarketAPIError
 from polymarket_core.logger import get_logger
 from polymarket_core.external.polymarket.signing import OrderSigner
-from py_clob_client.client import ClobClient
-from py_clob_client.clob_types import ApiCreds, OrderArgs, BalanceAllowanceParams, AssetType
+from py_clob_client_v2 import ClobClient, OrderArgs, MarketOrderArgs, OrderType, Side, PartialCreateOrderOptions
+from py_clob_client_v2.clob_types import ApiCreds, BalanceAllowanceParams, AssetType
 
 
 logger = get_logger(__name__)
@@ -160,24 +160,28 @@ class PolymarketClient:
             key=settings.wallet_private_key,
             chain_id=137,
             creds=creds,
-            signature_type=2,
-            funder=self._address
         )
 
         try:
             logger.info(f"SDK Submission | Token: {market_id} | Price: {price} | Size: {size} | Side: {side} | Type: {order_type}")
+            
+            mapped_side = Side.BUY if side.upper() == "BUY" else Side.SELL
+            mapped_order_type = OrderType.GTC if order_type.upper() == "GTC" else OrderType.FAK
+            
             order_args = OrderArgs(
                 price=price,
                 size=size,
-                side=side.upper(),
+                side=mapped_side,
                 token_id=market_id,
             )
 
-            signed_order = await asyncio.to_thread(sdk_client.create_order, order_args)
+            options = PartialCreateOrderOptions(tick_size=settings.default_tick_size)
+            
             response = await asyncio.to_thread(
-                sdk_client.post_order, 
-                signed_order, 
-                orderType=order_type.upper() if order_type else "FAK"
+                sdk_client.create_and_post_order, 
+                order_args,
+                options,
+                mapped_order_type
             )
 
             return response
@@ -215,8 +219,6 @@ class PolymarketClient:
             key=settings.wallet_private_key,
             chain_id=137,
             creds=creds,
-            signature_type=2,
-            funder=self._address
         )
 
         try:
@@ -248,12 +250,10 @@ class PolymarketClient:
             host=settings.polymarket_base_url,
             key=settings.wallet_private_key,
             chain_id=137,
-            signature_type=2,
-            funder=self._address
         )
 
         try:
-            res = await asyncio.to_thread(sdk_client.create_or_derive_api_creds)
+            res = await asyncio.to_thread(sdk_client.create_or_derive_api_key)
 
             if hasattr(res, 'api_key'):
                 creds_dict = {
@@ -284,12 +284,10 @@ class PolymarketClient:
             key=settings.wallet_private_key,
             chain_id=137,
             creds=creds,
-            signature_type=2,
-            funder=self._address
         )
 
         try:
-            return await asyncio.to_thread(sdk_client.get_orders)
+            return await asyncio.to_thread(sdk_client.get_open_orders)
         except Exception as e:
             raise PolymarketAPIError(f"SDK Auth verification failed: {e}")
 
@@ -307,12 +305,10 @@ class PolymarketClient:
             key=settings.wallet_private_key,
             chain_id=137,
             creds=creds,
-            signature_type=2,
-            funder=self._address
         )
 
         try:
-            await asyncio.to_thread(sdk_client.cancel, order_id)
+            await asyncio.to_thread(sdk_client.cancel_orders, [order_id])
             return True
         except Exception as e:
             if "404" in str(e):
@@ -333,8 +329,6 @@ class PolymarketClient:
             key=settings.wallet_private_key,
             chain_id=137,
             creds=creds,
-            signature_type=2,
-            funder=self._address
         )
 
         try:
@@ -359,8 +353,6 @@ class PolymarketClient:
             key=settings.wallet_private_key,
             chain_id=137,
             creds=creds,
-            signature_type=2,
-            funder=self._address
         )
 
         try:
@@ -414,9 +406,9 @@ class PolymarketClient:
     async def redeem_positions(self, condition_id: str, outcome_index: int | None = None, nonce: int | None = None) -> dict:
         from web3 import Web3
 
-        POLYGON_RPC = "https://polygon-bor-rpc.publicnode.com"
-        CTF_ADDRESS = Web3.to_checksum_address("0x4D97DCd97eC945f40cF65F87097ACe5EA0476045")
-        USDC_ADDRESS = Web3.to_checksum_address("0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174")
+        POLYGON_RPC = settings.polygon_rpc_url or "https://polygon-bor-rpc.publicnode.com"
+        CTF_ADDRESS = Web3.to_checksum_address(settings.ctf_contract_address)
+        USDC_ADDRESS = Web3.to_checksum_address(settings.collateral_token_address)
 
         CTF_ABI = [
             {
