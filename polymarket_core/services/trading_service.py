@@ -31,7 +31,8 @@ class TradingService:
 
             trade.shares = shares
             trade.entry_price = price
-            trade.entry_cost_usdc = shares * price
+            fee = self.calculate_taker_fee(shares, price, self._get_category(trade.market_id))
+            trade.entry_cost_usdc = shares * price + fee
             trade.status = TradeStatus.ACTIVE
             return True
 
@@ -83,7 +84,8 @@ class TradingService:
 
                 trade.shares = filled_shares
                 trade.entry_price = clean_price
-                trade.entry_cost_usdc = filled_shares * clean_price
+                fee = self.calculate_taker_fee(filled_shares, clean_price, self._get_category(trade.market_id))
+                trade.entry_cost_usdc = (filled_shares * clean_price) + fee
                 trade.status = TradeStatus.ACTIVE
                 logger.info(f"TradingService | Execution Complete | {trade.id} | Status: {order.status} | Final Shares: {filled_shares}")
                 return True
@@ -138,8 +140,8 @@ class TradingService:
             exit_order.filled_price = exit_price
             exit_order.filled_at = datetime.now(timezone.utc).replace(tzinfo=None)
 
-            entry_price = float(trade.entry_price) if trade.entry_price is not None else exit_price
-            pnl = (exit_price - entry_price) * shares
+            fee_exit = self.calculate_taker_fee(shares, exit_price, self._get_category(trade.market_id))
+            pnl = (shares * exit_price - fee_exit) - trade.entry_cost_usdc
 
             trade.exit_price = exit_price
             trade.total_pnl_usdc = pnl
@@ -175,8 +177,8 @@ class TradingService:
                 exit_order.filled_price = clean_price
                 exit_order.filled_at = datetime.now(timezone.utc).replace(tzinfo=None)
 
-                entry_price = float(trade.entry_price) if trade.entry_price is not None else clean_price
-                pnl = (clean_price - entry_price) * clean_shares
+                fee_exit = self.calculate_taker_fee(clean_shares, clean_price, self._get_category(trade.market_id))
+                pnl = (clean_shares * clean_price - fee_exit) - trade.entry_cost_usdc
                 trade.exit_price = clean_price
                 trade.total_pnl_usdc = pnl
 
@@ -231,3 +233,32 @@ class TradingService:
             return settings.max_position_size_usdc
         except Exception:
             return settings.max_position_size_usdc
+
+    def calculate_taker_fee(self, shares: float, price: float, category: str = "crypto") -> float:
+        cat_rates = {
+            "crypto": 0.072,
+            "politics": 0.04,
+            "finance": 0.04,
+            "tech": 0.04,
+            "mentions": 0.04,
+            "sports": 0.03,
+            "geopolitics": 0.0,
+            "economics": 0.05,
+            "culture": 0.05,
+            "weather": 0.05,
+            "general": 0.05,
+        }
+        rate = cat_rates.get(category.lower(), 0.05)
+        return float(shares) * rate * float(price) * (1.0 - float(price))
+
+    def _get_category(self, market_id: str) -> str:
+        if not market_id:
+            return "crypto"
+        m_id = str(market_id).lower()
+        crypto_keywords = ["bitcoin", "ethereum", "solana", "cardano", "ripple", "dogecoin", "crypto", "btc", "eth", "sol", "xrp"]
+        if any(k in m_id for k in crypto_keywords):
+            return "crypto"
+        politics_keywords = ["politics", "election", "president", "biden", "trump", "democrat", "republican"]
+        if any(k in m_id for k in politics_keywords):
+            return "politics"
+        return "crypto"
